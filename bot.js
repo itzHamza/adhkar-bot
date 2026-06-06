@@ -9,39 +9,9 @@ const https = require("https");
 const BOT_TOKEN = process.env.BOT_TOKEN;
 const CHANNEL_ID = "@tbiibe";
 
-
+// Prayer calculation method — 3 = Muslim World League (used in Algeria)
+// Full list: https://aladhan.com/prayer-times-api
 const PRAYER_METHOD = 3;
-
-// ─────────────────────────────────────────
-//  SUBSCRIBER STORE
-// ─────────────────────────────────────────
-const fs = require("fs");
-const path = require("path");
-const SUBSCRIBERS_FILE = path.join(__dirname, "subscribers.json");
-const subscribers = new Set();
-
-function loadSubscribers() {
-  try {
-    if (fs.existsSync(SUBSCRIBERS_FILE)) {
-      const data = JSON.parse(fs.readFileSync(SUBSCRIBERS_FILE, "utf8"));
-      data.forEach((id) => subscribers.add(id));
-      console.log(`📋 Loaded ${subscribers.size} subscriber(s)`);
-    }
-  } catch (err) {
-    console.error("Failed to load subscribers:", err.message);
-  }
-}
-
-function saveSubscribers() {
-  try {
-    fs.writeFileSync(
-      SUBSCRIBERS_FILE,
-      JSON.stringify([...subscribers], null, 2),
-    );
-  } catch (err) {
-    console.error("Failed to save subscribers:", err.message);
-  }
-}
 
 // ─────────────────────────────────────────
 //  PRAYER NAMES (EN → AR)
@@ -251,62 +221,24 @@ bot.onText(/\/start/, async (msg) => {
 });
 
 // ─────────────────────────────────────────
-//  /subscribe — receive daily messages
-// ─────────────────────────────────────────
-bot.onText(/\/subscribe/, async (msg) => {
-  const chatId = msg.chat.id;
-  if (subscribers.has(chatId)) {
-    await bot.sendMessage(chatId, "✅ أنت مشترك بالفعل في الأذكار اليومية");
-    return;
-  }
-  subscribers.add(chatId);
-  saveSubscribers();
-  await bot.sendMessage(
-    chatId,
-    "✅ تم الاشتراك بنجاح في الأذكار اليومية وتذكيرات الصلاة 🎉\n\nللإلغاء أرسل /unsubscribe",
-  );
-});
-
-// ─────────────────────────────────────────
-//  /unsubscribe — stop receiving messages
-// ─────────────────────────────────────────
-bot.onText(/\/unsubscribe/, async (msg) => {
-  const chatId = msg.chat.id;
-  if (!subscribers.has(chatId)) {
-    await bot.sendMessage(chatId, "أنت غير مشترك أصلاً");
-    return;
-  }
-  subscribers.delete(chatId);
-  saveSubscribers();
-  await bot.sendMessage(
-    chatId,
-    "تم إلغاء الاشتراك. إذا أردت العودة أرسل /subscribe",
-  );
-});
-
-// ─────────────────────────────────────────
 //  SCHEDULER — runs every minute
 // ─────────────────────────────────────────
 function checkAndSend() {
   const currentTime = getCurrentHHMM();
 
-  if (subscribers.size === 0) return;
-
   // Regular scheduled messages
   for (const item of scheduledMessages) {
     if (item.time === currentTime) {
-      for (const chatId of subscribers) {
-        bot
-          .sendMessage(chatId, item.message, { parse_mode: "MarkdownV2" })
-          .then(() =>
-            console.log(
-              `✅ Sent [${item.time}] to ${chatId}: ${item.message.slice(0, 40)}...`,
-            ),
-          )
-          .catch((err) =>
-            console.error(`❌ Failed [${item.time}] for ${chatId}:`, err.message),
-          );
-      }
+      bot
+        .sendMessage(CHANNEL_ID, item.message, { parse_mode: "MarkdownV2" })
+        .then(() =>
+          console.log(
+            `✅ Sent [${item.time}]: ${item.message.slice(0, 40)}...`,
+          ),
+        )
+        .catch((err) =>
+          console.error(`❌ Failed [${item.time}]:`, err.message),
+        );
     }
   }
 
@@ -314,21 +246,19 @@ function checkAndSend() {
   for (const prayer of prayerTimesForToday) {
     if (prayer.time === currentTime) {
       const msg = buildPrayerMessage(prayer.arabicName);
-      for (const chatId of subscribers) {
-        bot
-          .sendMessage(chatId, msg, { parse_mode: "MarkdownV2" })
-          .then(() =>
-            console.log(
-              `🕌 Prayer reminder sent to ${chatId}: ${prayer.arabicName} [${prayer.time}]`,
-            ),
-          )
-          .catch((err) =>
-            console.error(
-              `❌ Prayer reminder failed for ${chatId} [${prayer.arabicName}]:`,
-              err.message,
-            ),
-          );
-      }
+      bot
+        .sendMessage(CHANNEL_ID, msg, { parse_mode: "MarkdownV2" })
+        .then(() =>
+          console.log(
+            `🕌 Prayer reminder sent: ${prayer.arabicName} [${prayer.time}]`,
+          ),
+        )
+        .catch((err) =>
+          console.error(
+            `❌ Prayer reminder failed [${prayer.arabicName}]:`,
+            err.message,
+          ),
+        );
     }
   }
 }
@@ -337,7 +267,6 @@ function checkAndSend() {
 //  STARTUP
 // ─────────────────────────────────────────
 (async () => {
-  loadSubscribers();
   await refreshPrayerTimes();
   scheduleMidnightRefresh();
   setInterval(checkAndSend, 60 * 1000);
