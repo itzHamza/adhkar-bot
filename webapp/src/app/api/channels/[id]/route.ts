@@ -27,7 +27,7 @@ const FEATURE_KEYS = [
 
 const SLOTS = ["morning", "evening", "sleep"] as const;
 const DEFAULT_TIMES: Record<(typeof SLOTS)[number], string> = {
-  morning: "08:30",
+  morning: "07:30",
   evening: "17:30",
   sleep: "23:50",
 };
@@ -73,7 +73,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     azkar: azkar.data.map((a) => ({
       ...a,
       send_time: a.send_time ? String(a.send_time).slice(0, 5) : null,
-    })),
+    })),7
   });
 }
 
