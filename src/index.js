@@ -3,6 +3,7 @@ require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const db = require("./db");
 const {
+  settingsOpts,
   esc,
   upsertUser,
   registerChannel,
@@ -64,8 +65,9 @@ bot.onText(
         `1️⃣ زيد البوت <b>@${esc(BOT_USERNAME)}</b> admin في قناتك مع صلاحية <b>Post Messages</b>\n` +
         `2️⃣ القناة تتربط تلقائيا وتجيك رسالة تأكيد هنا\n\n` +
         `إذا ما تربطتش: /addchannel\n` +
-        `قنواتك: /mychannels`,
-      { parse_mode: "HTML" },
+        `قنواتك: /mychannels\n` +
+        `الإعدادات: /settings`,
+      { parse_mode: "HTML", ...settingsOpts() },
     );
   }),
 );
@@ -73,6 +75,22 @@ bot.onText(
 // ─────────────────────────────────────────
 //  /addchannel — manual fallback
 // ─────────────────────────────────────────
+bot.onText(
+  /^\/settings/,
+  safe(async (msg) => {
+    if (!isPrivate(msg)) return;
+    if (!process.env.WEBAPP_URL) {
+      await bot.sendMessage(msg.chat.id, "الإعدادات غير متوفرة حاليا.");
+      return;
+    }
+    await bot.sendMessage(
+      msg.chat.id,
+      "اضغط تحت باش تفتح الإعدادات 👇",
+      settingsOpts(),
+    );
+  }),
+);
+
 bot.onText(
   /^\/addchannel/,
   safe(async (msg) => {
@@ -141,7 +159,7 @@ bot.on(
     await bot.sendMessage(
       msg.chat.id,
       res.ok ? successText(res.channel, res.isNew) : `❌ ${res.reason}`,
-      { parse_mode: "HTML" },
+      { parse_mode: "HTML", ...(res.ok ? settingsOpts() : {}) },
     );
   }),
 );
@@ -181,9 +199,21 @@ bot.onText(
       {
         parse_mode: "HTML",
         reply_markup: {
-          inline_keyboard: channels.map((c) => [
-            { text: `🗑 فصل ${c.title}`, callback_data: `unlink:${c.id}` },
-          ]),
+          inline_keyboard: [
+            ...(process.env.WEBAPP_URL
+              ? [
+                  [
+                    {
+                      text: "⚙️ فتح الإعدادات",
+                      web_app: { url: process.env.WEBAPP_URL },
+                    },
+                  ],
+                ]
+              : []),
+            ...channels.map((c) => [
+              { text: `🗑 فصل ${c.title}`, callback_data: `unlink:${c.id}` },
+            ]),
+          ],
         },
       },
     );

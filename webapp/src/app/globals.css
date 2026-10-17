@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+/* Colors follow the user's Telegram theme (light/dark) with sane fallbacks */
+@theme {
+  --color-bg: var(--tg-theme-bg-color, #ffffff);
+  --color-fg: var(--tg-theme-text-color, #111111);
+  --color-hint: var(--tg-theme-hint-color, #8a8a8e);
+  --color-card: var(--tg-theme-secondary-bg-color, #f2f2f7);
+  --color-btn: var(--tg-theme-button-color, #2481cc);
+  --color-btn-fg: var(--tg-theme-button-text-color, #ffffff);
+  --color-danger: #e5484d;
+}
+
+body {
+  background: var(--tg-theme-bg-color, #ffffff);
+  color: var(--tg-theme-text-color, #111111);
+  font-family: system-ui, -apple-system, "Segoe UI", Tahoma, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}

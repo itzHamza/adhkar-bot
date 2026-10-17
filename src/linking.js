@@ -3,7 +3,10 @@ const db = require("./db");
 const MAX_CHANNELS_PER_USER = 5;
 
 const esc = (s) =>
-  String(s ?? "").replace(/[&<>]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c]);
+  String(s ?? "").replace(
+    /[&<>]/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" })[c],
+  );
 
 async function upsertUser(from) {
   await db.from("users").upsert(
@@ -50,7 +53,8 @@ async function registerChannel(bot, botId, chat, ownerId) {
   if (botMember.status !== "administrator" || !botMember.can_post_messages) {
     return {
       ok: false,
-      reason: "البوت لازم يكون admin مع صلاحية <b>نشر الرسائل</b> (Post Messages).",
+      reason:
+        "البوت لازم يكون admin مع صلاحية <b>نشر الرسائل</b> (Post Messages).",
     };
   }
 
@@ -121,7 +125,7 @@ function successText(channel, isNew) {
   return (
     `✅ ${isNew ? "تم ربط" : "تم تفعيل"} القناة <b>${esc(channel.title)}</b>\n\n` +
     `الإعدادات الافتراضية: مواقيت الصلاة (الجزائر العاصمة) + أذكار الصباح والمساء والنوم.\n` +
-    `تعديل الإعدادات يجي في المرحلة الجاية 🔧`
+    `تعدّل كلشي (الصلوات، الأذكار، المدينة) من زر ⚙️ تحت أو من /settings`
   );
 }
 
@@ -141,7 +145,12 @@ async function handleMyChatMember(bot, botId, upd) {
       ? successText(res.channel, res.isNew)
       : `❌ ما قدرتش نربط <b>${esc(chat.title)}</b>:\n${res.reason}`;
     // works only if the user already pressed /start in a private chat
-    await bot.sendMessage(from.id, text, { parse_mode: "HTML" }).catch(() => {});
+    await bot
+      .sendMessage(from.id, text, {
+        parse_mode: "HTML",
+        ...(res.ok ? settingsOpts() : {}),
+      })
+      .catch(() => {});
     return;
   }
 
@@ -165,7 +174,20 @@ async function handleMyChatMember(bot, botId, upd) {
   }
 }
 
+/** Inline "open settings" button (Mini App). Empty object if WEBAPP_URL isn't set. */
+function settingsOpts() {
+  const url = process.env.WEBAPP_URL;
+  return url
+    ? {
+        reply_markup: {
+          inline_keyboard: [[{ text: "⚙️ فتح الإعدادات", web_app: { url } }]],
+        },
+      }
+    : {};
+}
+
 module.exports = {
+  settingsOpts,
   esc,
   upsertUser,
   registerChannel,
