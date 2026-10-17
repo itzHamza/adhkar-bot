@@ -109,6 +109,24 @@ export function escapeHtml(s: string) {
   return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
+/** Validates a dhikr text and HTML-escapes it (plain text only — no user HTML). */
+export function parseAzkarText(v: unknown): { text: string } | { error: string } {
+  if (typeof v !== "string") return { error: "النص مطلوب." };
+  const raw = v.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "").trim();
+  if (!raw) return { error: "النص مطلوب." };
+  if (raw.length > 2000) return { error: "النص طويل (الحد 2000 حرف)." };
+  const text = escapeHtml(raw);
+  if (text.length > 3500) return { error: "النص طويل بزاف." };
+  return { text };
+}
+
+/** days_of_week: non-empty array of unique ints 0..6 (0 = Sunday), or null if invalid. */
+export function parseDays(v: unknown): number[] | null {
+  if (!Array.isArray(v) || !v.length) return null;
+  if (!v.every((d) => Number.isInteger(d) && d >= 0 && d <= 6)) return null;
+  return [...new Set<number>(v)].sort((a, b) => a - b);
+}
+
 export function cleanName(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const s = v.trim().replace(/\s+/g, " ");

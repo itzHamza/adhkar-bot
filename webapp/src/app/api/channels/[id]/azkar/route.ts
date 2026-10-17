@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   authenticate,
   db,
-  escapeHtml,
   fail,
   ownedChannel,
+  parseAzkarText,
+  parseDays,
   TIME_RE,
 } from "@/lib/server";
 
@@ -12,8 +13,6 @@ type Ctx = { params: Promise<{ id: string }> };
 
 const SLOTS = ["custom", "morning", "evening", "sleep"];
 const MAX_PER_CHANNEL = 30;
-const MAX_RAW_LEN = 2000;
-const MAX_STORED_LEN = 3500; // matches the CHECK constraint on azkar.body
 
 export async function POST(req: NextRequest, { params }: Ctx) {
   const auth = await authenticate(req);
@@ -24,42 +23,28 @@ export async function POST(req: NextRequest, { params }: Ctx) {
   const b = await req.json().catch(() => null);
   if (!b || typeof b !== "object") return fail(400, "طلب غير صالح.");
 
-  // slot
   if (typeof b.slot !== "string" || !SLOTS.includes(b.slot)) return fail(400, "نوع غير صالح.");
 
-  // text: plain text only — escaped so users can't inject Telegram HTML tags
-  if (typeof b.body !== "string") return fail(400, "النص مطلوب.");
-  const raw = b.body
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "")
-    .trim();
-  if (!raw) return fail(400, "النص مطلوب.");
-  if (raw.length > MAX_RAW_LEN) return fail(400, `النص طويل (الحد ${MAX_RAW_LEN} حرف).`);
-  const text = escapeHtml(raw);
-  if (text.length > MAX_STORED_LEN) return fail(400, "النص طويل بزاف.");
+  const t = parseAzkarText(b.body);
+  if ("error" in t) return fail(400, t.error);
 
-  // time (only for custom)
+  // optional own time for built-in slots; required for "custom"
   let sendTime: string | null = null;
-  if (b.slot === "custom") {
+  if (b.send_time !== undefined && b.send_time !== null) {
     if (typeof b.send_time !== "string" || !TIME_RE.test(b.send_time)) {
-      return fail(400, "اختر وقت الإرسال.");
+      return fail(400, "وقت غير صالح.");
     }
     sendTime = b.send_time;
   }
+  if (b.slot === "custom" && !sendTime) return fail(400, "اختر وقت الإرسال.");
 
-  // days
   let days = [0, 1, 2, 3, 4, 5, 6];
   if (b.days_of_week !== undefined) {
-    if (
-      !Array.isArray(b.days_of_week) ||
-      !b.days_of_week.length ||
-      !b.days_of_week.every((d: unknown) => Number.isInteger(d) && (d as number) >= 0 && (d as number) <= 6)
-    ) {
-      return fail(400, "أيام غير صالحة.");
-    }
-    days = [...new Set<number>(b.days_of_week)].sort();
+    const d = parseDays(b.days_of_week);
+    if (!d) return fail(400, "أيام غير صالحة.");
+    days = d;
   }
 
-  // quota
   const { count } = await db
     .from("azkar")
     .select("id", { count: "exact", head: true })
@@ -73,7 +58,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     .insert({
       channel_id: ch.id,
       slot: b.slot,
-      body: text,
+      body: t.text,
       send_time: sendTime,
       days_of_week: days,
     })

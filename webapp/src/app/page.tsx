@@ -24,12 +24,21 @@ type Azkar = {
   days_of_week: number[];
   is_enabled: boolean;
 };
+type GlobalAzkar = {
+  id: string;
+  slot: Slot;
+  body: string;
+  send_time: string | null;
+  days_of_week: number[];
+  hidden: boolean;
+};
 type Location = { country: string; city: string; timezone: string; prayer_method: number };
 type Detail = {
   channel: ChannelRow & Location;
   features: Record<string, boolean>;
   slotTimes: Record<Slot, string>;
   azkar: Azkar[];
+  globalAzkar: GlobalAzkar[];
 };
 
 const PRAYERS = [
@@ -48,9 +57,9 @@ const SLOT_ROWS: { slot: Slot; feature: string; label: string }[] = [
 
 const SLOT_LABEL: Record<AzkarSlot, string> = {
   custom: "وقت مخصص",
-  morning: "بديل أذكار الصباح",
-  evening: "بديل أذكار المساء",
-  sleep: "بديل أذكار النوم",
+  morning: "أذكار الصباح",
+  evening: "أذكار المساء",
+  sleep: "أذكار النوم",
 };
 
 const DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"]; // 0 = Sunday
@@ -208,103 +217,66 @@ function LocationEditor({
 }
 
 // ─────────────────────────────────────────
-//  custom adhkar
+//  adhkar manager (grouped list + edit/delete + add)
 // ─────────────────────────────────────────
-function AzkarSection({
-  items,
-  initData,
-  id,
-  notify,
-  reload,
+type FormValue = {
+  slot: AzkarSlot;
+  body: string;
+  send_time: string | null;
+  days_of_week: number[];
+};
+
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
+
+function AzkarForm({
+  initial,
+  slotLocked,
+  submitLabel,
+  resetOnSuccess,
+  onSubmit,
+  onCancel,
 }: {
-  items: Azkar[];
-  initData: string;
-  id: string;
-  notify: (m: string) => void;
-  reload: () => Promise<void>;
+  initial: { text: string; slot: AzkarSlot; time: string | null; days: number[] };
+  slotLocked?: boolean;
+  submitLabel: string;
+  resetOnSuccess?: boolean;
+  onSubmit: (v: FormValue) => Promise<boolean>;
+  onCancel?: () => void;
 }) {
-  const [text, setText] = useState("");
-  const [slot, setSlot] = useState<AzkarSlot>("custom");
-  const [time, setTime] = useState("08:00");
-  const [days, setDays] = useState<number[]>([0, 1, 2, 3, 4, 5, 6]);
+  const [text, setText] = useState(initial.text);
+  const [slot, setSlot] = useState<AzkarSlot>(initial.slot);
+  const [withTime, setWithTime] = useState(initial.time !== null);
+  const [time, setTime] = useState(initial.time ?? "08:00");
+  const [days, setDays] = useState<number[]>(initial.days);
   const [busy, setBusy] = useState(false);
 
-  const add = async () => {
-    setBusy(true);
-    try {
-      await call(initData, `/api/channels/${id}/azkar`, {
-        method: "POST",
-        body: JSON.stringify({
-          slot,
-          body: text,
-          ...(slot === "custom" ? { send_time: time, days_of_week: days } : {}),
-        }),
-      });
-      setText("");
-      notify("✅ تمت الإضافة");
-      await reload();
-    } catch (e) {
-      notify(errMsg(e));
-    }
-    setBusy(false);
-  };
-
-  const toggle = async (a: Azkar) => {
-    try {
-      await call(initData, `/api/channels/${id}/azkar/${a.id}`, {
-        method: "PATCH",
-        body: JSON.stringify({ is_enabled: !a.is_enabled }),
-      });
-      await reload();
-    } catch (e) {
-      notify(errMsg(e));
-    }
-  };
-
-  const remove = async (a: Azkar) => {
-    if (!(await ask("حذف هذا الذكر؟"))) return;
-    try {
-      await call(initData, `/api/channels/${id}/azkar/${a.id}`, { method: "DELETE" });
-      await reload();
-    } catch (e) {
-      notify(errMsg(e));
-    }
-  };
-
+  const timed = slot === "custom" || withTime;
   const toggleDay = (d: number) =>
     setDays((p) => (p.includes(d) ? p.filter((x) => x !== d) : [...p, d].sort()));
 
+  const submit = async () => {
+    setBusy(true);
+    const ok = await onSubmit({
+      slot,
+      body: text,
+      send_time: timed ? time : null,
+      days_of_week: days,
+    });
+    setBusy(false);
+    if (ok && resetOnSuccess) setText("");
+  };
+
   return (
-    <Section title="✍️ أذكاري الخاصة">
-      {items.length === 0 && <p className="text-sm text-hint">ما زدت حتى ذكر بعد.</p>}
+    <div className="space-y-2">
+      <textarea
+        className={`${inputCls} min-h-24`}
+        placeholder="اكتب الذكر هنا (نص عادي)…"
+        maxLength={2000}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+      />
 
-      {items.map((a) => (
-        <div key={a.id} className="space-y-2 rounded-xl bg-bg p-3">
-          <p className="line-clamp-3 whitespace-pre-line text-sm">{decodeHtml(a.body)}</p>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs text-hint">
-              {SLOT_LABEL[a.slot]}
-              {a.slot === "custom" &&
-                ` · ${a.send_time} · ${a.days_of_week.length === 7 ? "كل يوم" : a.days_of_week.map((d) => DAYS[d]).join("، ")}`}
-            </span>
-            <div className="flex items-center gap-3">
-              <button className="text-sm text-danger" onClick={() => remove(a)}>
-                حذف
-              </button>
-              <Switch checked={a.is_enabled} onChange={() => toggle(a)} />
-            </div>
-          </div>
-        </div>
-      ))}
-
-      <div className="space-y-2 border-t border-hint/20 pt-3">
-        <textarea
-          className={`${inputCls} min-h-24`}
-          placeholder="اكتب الذكر هنا (نص عادي)…"
-          maxLength={2000}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-        />
+      {!slotLocked && (
         <select value={slot} onChange={(e) => setSlot(e.target.value as AzkarSlot)} className={inputCls}>
           {(Object.keys(SLOT_LABEL) as AzkarSlot[]).map((s) => (
             <option key={s} value={s}>
@@ -312,35 +284,263 @@ function AzkarSection({
             </option>
           ))}
         </select>
-        {slot !== "custom" && (
-          <p className="text-xs text-hint">
-            هاذا الذكر غادي يعوّض الأذكار العامة في هاذ الوقت (ويتبعت بدلها).
-          </p>
-        )}
-        {slot === "custom" && (
-          <>
-            <input type="time" dir="ltr" value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
-            <div className="flex flex-wrap gap-2">
-              {DAYS.map((d, i) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => toggleDay(i)}
-                  className={`rounded-full px-3 py-1 text-sm ${
-                    days.includes(i) ? "bg-btn text-btn-fg" : "bg-bg ring-1 ring-hint/30"
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
-            </div>
-          </>
-        )}
-        <button className={btnCls} onClick={add} disabled={busy || !text.trim() || (slot === "custom" && !days.length)}>
-          {busy ? "…" : "إضافة"}
+      )}
+
+      {slot !== "custom" && (
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={withTime} onChange={(e) => setWithTime(e.target.checked)} />
+          وقت خاص بهاذ الذكر (بدل وقت {SLOT_LABEL[slot]})
+        </label>
+      )}
+
+      {timed && (
+        <>
+          <input type="time" dir="ltr" value={time} onChange={(e) => setTime(e.target.value)} className={inputCls} />
+          <div className="flex flex-wrap gap-2">
+            {DAYS.map((d, i) => (
+              <button
+                key={d}
+                type="button"
+                onClick={() => toggleDay(i)}
+                className={`rounded-full px-3 py-1 text-sm ${
+                  days.includes(i) ? "bg-btn text-btn-fg" : "bg-bg ring-1 ring-hint/30"
+                }`}
+              >
+                {d}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="flex gap-2">
+        <button
+          className={btnCls}
+          onClick={submit}
+          disabled={busy || !text.trim() || (timed && (!days.length || !time))}
+        >
+          {busy ? "…" : submitLabel}
         </button>
+        {onCancel && (
+          <button className="rounded-xl px-4 py-2 ring-1 ring-hint/30" onClick={onCancel}>
+            إلغاء
+          </button>
+        )}
       </div>
-    </Section>
+    </div>
+  );
+}
+
+type Item = {
+  key: string;
+  id: string;
+  source: "global" | "own";
+  slot: AzkarSlot;
+  body: string; // stored (HTML-escaped) form
+  send_time: string | null;
+  days_of_week: number[];
+  enabled: boolean;
+};
+
+const GROUPS: { slot: AzkarSlot; title: string }[] = [
+  { slot: "morning", title: "🌅 أذكار الصباح" },
+  { slot: "evening", title: "🌇 أذكار المساء" },
+  { slot: "sleep", title: "🌙 أذكار النوم" },
+  { slot: "custom", title: "⏰ أذكار بوقت مخصص" },
+];
+
+function AzkarManager({
+  d,
+  initData,
+  id,
+  notify,
+  reload,
+}: {
+  d: Detail;
+  initData: string;
+  id: string;
+  notify: (m: string) => void;
+  reload: () => Promise<void>;
+}) {
+  const [editing, setEditing] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string[]>([]);
+
+  const items: Item[] = [
+    ...d.globalAzkar.map((g) => ({
+      key: `g:${g.id}`,
+      id: g.id,
+      source: "global" as const,
+      slot: g.slot,
+      body: g.body,
+      send_time: g.send_time,
+      days_of_week: g.days_of_week,
+      enabled: !g.hidden,
+    })),
+    ...d.azkar.map((a) => ({
+      key: `o:${a.id}`,
+      id: a.id,
+      source: "own" as const,
+      slot: a.slot,
+      body: a.body,
+      send_time: a.send_time,
+      days_of_week: a.days_of_week,
+      enabled: a.is_enabled,
+    })),
+  ];
+
+  const api = (path: string, init: RequestInit) =>
+    call(initData, `/api/channels/${id}${path}`, init);
+
+  const run = async (fn: () => Promise<unknown>, okMsg?: string) => {
+    try {
+      await fn();
+      if (okMsg) notify(okMsg);
+      await reload();
+      return true;
+    } catch (e) {
+      notify(errMsg(e));
+      return false;
+    }
+  };
+
+  const toggle = (it: Item) =>
+    run(() =>
+      it.source === "own"
+        ? api(`/azkar/${it.id}`, { method: "PATCH", body: JSON.stringify({ is_enabled: !it.enabled }) })
+        : api(`/global/${it.id}`, { method: "PATCH", body: JSON.stringify({ hidden: it.enabled }) }),
+    );
+
+  const remove = async (it: Item) => {
+    if (!(await ask("حذف هذا الذكر نهائيا؟"))) return;
+    await run(() => api(`/azkar/${it.id}`, { method: "DELETE" }));
+  };
+
+  const saveEdit = (it: Item) => async (v: FormValue) => {
+    const payload = JSON.stringify({
+      body: v.body,
+      send_time: v.send_time,
+      days_of_week: v.days_of_week,
+    });
+    const ok = await run(
+      () =>
+        it.source === "own"
+          ? api(`/azkar/${it.id}`, { method: "PATCH", body: payload })
+          : api(`/global/${it.id}`, { method: "POST", body: payload }),
+      "✅ تم الحفظ",
+    );
+    if (ok) setEditing(null);
+    return ok;
+  };
+
+  const add = (v: FormValue) =>
+    run(() => api("/azkar", { method: "POST", body: JSON.stringify(v) }), "✅ تمت الإضافة");
+
+  const toggleExpanded = (key: string) =>
+    setExpanded((p) => (p.includes(key) ? p.filter((k) => k !== key) : [...p, key]));
+
+  return (
+    <>
+      {GROUPS.map((g) => {
+        const rows = items.filter((i) => i.slot === g.slot);
+        const slotRow = SLOT_ROWS.find((s) => s.slot === g.slot);
+        const slotOff = slotRow ? !d.features[slotRow.feature] : !d.features.custom_azkar;
+        const untimedActive = rows.filter((i) => i.enabled && !i.send_time).length;
+
+        return (
+          <Section key={g.slot} title={g.title}>
+            {slotRow && (
+              <p className="text-xs text-hint">
+                وقت الإرسال: <span dir="ltr">{d.slotTimes[slotRow.slot]}</span>
+                {untimedActive > 1 && " · ذكر واحد كل يوم بالتناوب"}
+              </p>
+            )}
+            {slotOff && (
+              <p className="text-xs text-danger">
+                ⚠️ هاذ القسم موقوف من الأعلى، ما يتبعت منو شي حتى تفعّلو.
+              </p>
+            )}
+            {rows.length === 0 && <p className="text-sm text-hint">ما كاين حتى ذكر.</p>}
+
+            {rows.map((it) => (
+              <div
+                key={it.key}
+                className={`space-y-2 rounded-xl bg-bg p-3 ${it.enabled ? "" : "opacity-60"}`}
+              >
+                {editing === it.key ? (
+                  <>
+                    {it.source === "global" && (
+                      <p className="text-xs text-hint">
+                        غادي تتخلق نسخة خاصة بيك بالتعديل، وتتوقف النسخة العامة في قناتك.
+                      </p>
+                    )}
+                    <AzkarForm
+                      initial={{
+                        text: decodeHtml(it.body),
+                        slot: it.slot,
+                        time: it.send_time,
+                        days: it.days_of_week,
+                      }}
+                      slotLocked
+                      submitLabel="حفظ"
+                      onSubmit={saveEdit(it)}
+                      onCancel={() => setEditing(null)}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <p
+                      className={`whitespace-pre-line text-sm ${
+                        expanded.includes(it.key) ? "" : "line-clamp-3"
+                      }`}
+                    >
+                      {decodeHtml(it.body)}
+                    </p>
+                    {it.body.length > 120 && (
+                      <button className="text-xs text-btn" onClick={() => toggleExpanded(it.key)}>
+                        {expanded.includes(it.key) ? "إخفاء" : "عرض الكل"}
+                      </button>
+                    )}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="text-xs text-hint">
+                        {it.source === "global" ? "عام" : "خاص بي"}
+                        {it.send_time && (
+                          <>
+                            {" · "}
+                            <span dir="ltr">{it.send_time}</span>
+                            {it.days_of_week.length < 7 &&
+                              ` · ${it.days_of_week.map((x) => DAYS[x]).join("، ")}`}
+                          </>
+                        )}
+                      </span>
+                      <div className="flex items-center gap-3">
+                        <button className="text-sm text-btn" onClick={() => setEditing(it.key)}>
+                          تعديل
+                        </button>
+                        {it.source === "own" && (
+                          <button className="text-sm text-danger" onClick={() => remove(it)}>
+                            حذف
+                          </button>
+                        )}
+                        <Switch checked={it.enabled} onChange={() => toggle(it)} />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            ))}
+          </Section>
+        );
+      })}
+
+      <Section title="➕ إضافة ذكر">
+        <AzkarForm
+          initial={{ text: "", slot: "custom", time: "08:00", days: ALL_DAYS }}
+          submitLabel="إضافة"
+          resetOnSuccess
+          onSubmit={add}
+        />
+      </Section>
+    </>
   );
 }
 
@@ -449,6 +649,8 @@ function ChannelDetail({
         </Row>
       </Section>
 
+      <AzkarManager d={d} initData={initData} id={id} notify={notify} reload={load} />
+
       <Section title="🎧 صوتيات القرآن">
         <p className="text-sm text-hint">قريبا…</p>
       </Section>
@@ -457,7 +659,6 @@ function ChannelDetail({
         <LocationEditor ch={d.channel} onSave={saveLocation} />
       </Section>
 
-      <AzkarSection items={d.azkar} initData={initData} id={id} notify={notify} reload={load} />
     </div>
   );
 }

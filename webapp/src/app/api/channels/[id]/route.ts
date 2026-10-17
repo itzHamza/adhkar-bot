@@ -27,7 +27,7 @@ const FEATURE_KEYS = [
 
 const SLOTS = ["morning", "evening", "sleep"] as const;
 const DEFAULT_TIMES: Record<(typeof SLOTS)[number], string> = {
-  morning: "07:30",
+  morning: "08:30",
   evening: "17:30",
   sleep: "23:50",
 };
@@ -39,7 +39,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
   const ch = await ownedChannel(auth.user.id, (await params).id);
   if (!ch) return fail(404, "القناة غير موجودة.");
 
-  const [features, times, azkar] = await Promise.all([
+  const [features, times, azkar, globalRows, hidden] = await Promise.all([
     db.from("channel_features").select("*").eq("channel_id", ch.id).maybeSingle(),
     db.from("channel_slot_times").select("slot, send_time").eq("channel_id", ch.id),
     db
@@ -47,10 +47,19 @@ export async function GET(req: NextRequest, { params }: Ctx) {
       .select("id, slot, body, send_time, days_of_week, is_enabled")
       .eq("channel_id", ch.id)
       .order("created_at"),
+    db
+      .from("azkar")
+      .select("id, slot, body, send_time, days_of_week")
+      .is("channel_id", null)
+      .eq("is_enabled", true)
+      .in("slot", ["morning", "evening", "sleep"])
+      .order("id"),
+    db.from("channel_azkar_hidden").select("azkar_id").eq("channel_id", ch.id),
   ]);
-  if (features.error || times.error || azkar.error) {
+  if (features.error || times.error || azkar.error || globalRows.error || hidden.error) {
     return fail(500, "خطأ في قاعدة البيانات.");
   }
+  const hiddenIds = new Set(hidden.data.map((h) => h.azkar_id));
 
   const slotTimes: Record<string, string> = { ...DEFAULT_TIMES };
   for (const t of times.data) slotTimes[t.slot] = String(t.send_time).slice(0, 5);
@@ -73,6 +82,11 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     azkar: azkar.data.map((a) => ({
       ...a,
       send_time: a.send_time ? String(a.send_time).slice(0, 5) : null,
+    })),
+    globalAzkar: globalRows.data.map((a) => ({
+      ...a,
+      send_time: a.send_time ? String(a.send_time).slice(0, 5) : null,
+      hidden: hiddenIds.has(a.id),
     })),
   });
 }

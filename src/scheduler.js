@@ -15,7 +15,7 @@ const FEATURE_OF_SLOT = {
   sleep: "azkar_sleep",
 };
 // used when a channel has no row in channel_slot_times
-const DEFAULT_SLOT_TIMES = { morning: "07:30", evening: "17:30", sleep: "23:50" };
+const DEFAULT_SLOT_TIMES = { morning: "08:30", evening: "17:30", sleep: "23:50" };
 
 // ─────────────────────────────────────────
 //  local time per timezone
@@ -108,7 +108,11 @@ async function loadAzkar() {
 
 async function loadSlotTimes() {
   const rows = await fetchAll(() =>
-    db.from("channel_slot_times").select("channel_id, slot, send_time").order("channel_id"),
+    db
+      .from("channel_slot_times")
+      .select("channel_id, slot, send_time")
+      .order("channel_id")
+      .order("slot"),
   );
   const map = new Map();
   for (const r of rows) {
@@ -116,6 +120,18 @@ async function loadSlotTimes() {
     map.get(r.channel_id)[r.slot] = r.send_time.slice(0, 5);
   }
   return map;
+}
+
+// global adhkar a channel switched off: Set of "channelId|azkarId"
+async function loadHidden() {
+  const rows = await fetchAll(() =>
+    db
+      .from("channel_azkar_hidden")
+      .select("channel_id, azkar_id")
+      .order("channel_id")
+      .order("azkar_id"),
+  );
+  return new Set(rows.map((r) => `${r.channel_id}|${r.azkar_id}`));
 }
 
 // jobs already claimed in the last 15 min — avoids re-trying inserts every tick
@@ -157,17 +173,20 @@ async function dueJobs(ch, ctx) {
     if (!f[FEATURE_OF_SLOT[slot]]) continue;
 
     const ownRows = own.filter((r) => r.slot === slot);
-    const globalRows = ctx.azkar.globalAzkar[slot];
+    // global rows this channel hasn't hidden + its own rows (what the GUI shows is what gets sent)
+    const globalRows = ctx.azkar.globalAzkar[slot].filter(
+      (r) => !ctx.hidden.has(`${ch.id}|${r.id}`),
+    );
+    const rows = [...globalRows, ...ownRows];
 
     // rows WITHOUT send_time rotate daily and go out at the slot time
-    const ownUntimed = ownRows.filter((r) => !r.send_time);
-    const pool = ownUntimed.length ? ownUntimed : globalRows.filter((r) => !r.send_time);
+    const pool = rows.filter((r) => !r.send_time);
     if (pool.length && isDue(local.min, slotTimes[slot] ?? DEFAULT_SLOT_TIMES[slot])) {
       push(`azkar:${slot}`, pool[local.doy % pool.length].body);
     }
 
     // rows WITH send_time go out at their own time (each as its own message)
-    for (const r of [...globalRows, ...ownRows]) {
+    for (const r of rows) {
       if (
         r.send_time &&
         r.days_of_week.includes(local.dow) &&
@@ -271,6 +290,7 @@ async function tick(bot) {
     const ctx = {
       azkar: await loadAzkar(),
       slotTimes: await loadSlotTimes(),
+      hidden: await loadHidden(),
       claims: await loadRecentClaims(),
     };
 
@@ -313,4 +333,4 @@ function startScheduler(bot) {
   console.log("⏰ Scheduler started");
 }
 
-module.exports = { startScheduler };
+module.exports = { startScheduler, dueJobs }; // dueJobs exported for tests
