@@ -15,7 +15,7 @@ const FEATURE_OF_SLOT = {
   sleep: "azkar_sleep",
 };
 // used when a channel has no row in channel_slot_times
-const DEFAULT_SLOT_TIMES = { morning: "08:30", evening: "17:30", sleep: "23:50" };
+const DEFAULT_SLOT_TIMES = { morning: "07:30", evening: "17:30", sleep: "23:50" };
 
 // ─────────────────────────────────────────
 //  local time per timezone
@@ -155,11 +155,27 @@ async function dueJobs(ch, ctx) {
   const slotTimes = ctx.slotTimes.get(ch.id) ?? {};
   for (const slot of SLOTS) {
     if (!f[FEATURE_OF_SLOT[slot]]) continue;
-    if (!isDue(local.min, slotTimes[slot] ?? DEFAULT_SLOT_TIMES[slot])) continue;
+
     const ownRows = own.filter((r) => r.slot === slot);
-    const pool = ownRows.length ? ownRows : ctx.azkar.globalAzkar[slot];
-    if (!pool.length) continue; // no content for this slot yet
-    push(`azkar:${slot}`, pool[local.doy % pool.length].body);
+    const globalRows = ctx.azkar.globalAzkar[slot];
+
+    // rows WITHOUT send_time rotate daily and go out at the slot time
+    const ownUntimed = ownRows.filter((r) => !r.send_time);
+    const pool = ownUntimed.length ? ownUntimed : globalRows.filter((r) => !r.send_time);
+    if (pool.length && isDue(local.min, slotTimes[slot] ?? DEFAULT_SLOT_TIMES[slot])) {
+      push(`azkar:${slot}`, pool[local.doy % pool.length].body);
+    }
+
+    // rows WITH send_time go out at their own time (each as its own message)
+    for (const r of [...globalRows, ...ownRows]) {
+      if (
+        r.send_time &&
+        r.days_of_week.includes(local.dow) &&
+        isDue(local.min, r.send_time.slice(0, 5))
+      ) {
+        push(`azkar:${r.id}`, r.body);
+      }
+    }
   }
 
   // 3. custom adhkar with their own time/days
