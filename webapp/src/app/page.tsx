@@ -93,7 +93,12 @@ async function call<T = any>(initData: string, path: string, init?: RequestInit)
 
 // bodies are stored HTML-escaped (plain text only) — decode for display
 const decodeHtml = (s: string) =>
-  s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  s
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
 
 function ask(message: string): Promise<boolean> {
   const tg = window.Telegram?.WebApp;
@@ -349,6 +354,61 @@ const GROUPS: { slot: AzkarSlot; title: string }[] = [
   { slot: "custom", title: "⏰ أذكار بوقت مخصص" },
 ];
 
+function AzkarBody({ body }: { body: string }) {
+  const decoded = decodeHtml(body);
+  const regex = /<blockquote(?:\s+[^>]*)?>([\s\S]*?)<\/blockquote>/gi;
+
+  if (!/<blockquote(?:\s+[^>]*)?>/i.test(decoded)) {
+    return <div className="whitespace-pre-line leading-relaxed">{decoded}</div>;
+  }
+
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = regex.exec(decoded)) !== null) {
+    const fullMatch = match[0];
+    const quoteText = match[1];
+    const matchIndex = match.index;
+
+    if (matchIndex > lastIndex) {
+      const before = decoded.slice(lastIndex, matchIndex).trimEnd();
+      if (before) {
+        parts.push(
+          <div key={`text-${key++}`} className="whitespace-pre-line leading-relaxed">
+            {before}
+          </div>
+        );
+      }
+    }
+
+    parts.push(
+      <blockquote
+        key={`quote-${key++}`}
+        className="my-2 rounded-r-xs rounded-l-xl border-r-4 border-btn bg-card/70 px-3 py-2 font-medium leading-relaxed text-fg whitespace-pre-line shadow-xs"
+      >
+        {quoteText.trim()}
+      </blockquote>
+    );
+
+    lastIndex = matchIndex + fullMatch.length;
+  }
+
+  if (lastIndex < decoded.length) {
+    const after = decoded.slice(lastIndex).trimStart();
+    if (after) {
+      parts.push(
+        <div key={`text-${key++}`} className="whitespace-pre-line leading-relaxed">
+          {after}
+        </div>
+      );
+    }
+  }
+
+  return <div>{parts}</div>;
+}
+
 function AzkarManager({
   d,
   initData,
@@ -488,14 +548,14 @@ function AzkarManager({
                   </>
                 ) : (
                   <>
-                    <p
-                      className={`whitespace-pre-line text-sm ${
+                    <div
+                      className={`text-sm ${
                         expanded.includes(it.key) ? "" : "line-clamp-3"
                       }`}
                     >
-                      {decodeHtml(it.body)}
-                    </p>
-                    {it.body.length > 120 && (
+                      <AzkarBody body={it.body} />
+                    </div>
+                    {(it.body.length > 100 || it.body.includes("<blockquote")) && (
                       <button className="text-xs text-btn" onClick={() => toggleExpanded(it.key)}>
                         {expanded.includes(it.key) ? "إخفاء" : "عرض الكل"}
                       </button>
