@@ -73,7 +73,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     azkar: azkar.data.map((a) => ({
       ...a,
       send_time: a.send_time ? String(a.send_time).slice(0, 5) : null,
-    })),7
+    })),
   });
 }
 
